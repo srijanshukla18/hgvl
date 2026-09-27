@@ -1,0 +1,17 @@
+{
+  "name": "herdr-hands",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Point at an agent and talk to it. Gesture + voice layer for Herdr.",
+  "license": "Apache-2.0",
+  "main": "dist/main.js",
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "electron": "^44.4.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1"
+  }
+}
