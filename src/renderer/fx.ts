@@ -56,7 +56,7 @@ export class Fx {
   talkLevel = 0;
   talkPaneId: string | null = null;
   private armedAmt = 0;
-  private laser = { x: 0, y: 0, vx: 0, vy: 0, alpha: 0, init: false };
+  private laser = { x: 0, y: 0, alpha: 0, init: false };
   private trail: { x: number; y: number; t: number }[] = [];
   private panes = new Map<string, PaneAnim>();
   private bursts: Burst[] = [];
@@ -249,14 +249,9 @@ export class Fx {
         L.y = p.y;
         L.init = true;
       }
-      // Critically damped spring toward the filtered fingertip.
-      const w = 30;
-      const ax = w * w * (p.x - L.x) - 2 * w * L.vx;
-      const ay = w * w * (p.y - L.y) - 2 * w * L.vy;
-      L.vx += ax * dt;
-      L.vy += ay * dt;
-      L.x += L.vx * dt;
-      L.y += L.vy * dt;
+      // Ease toward the filtered fingertip every display frame (stable at any frame rate).
+      L.x = approach(L.x, p.x, dt, 26);
+      L.y = approach(L.y, p.y, dt, 26);
     }
     if (L.alpha < 0.01) {
       this.trail = [];
@@ -279,12 +274,12 @@ export class Fx {
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.strokeStyle = `rgba(${color},${0.5 * k * L.alpha})`;
-      ctx.lineWidth = 1 + 7 * k;
+      ctx.lineWidth = 1.5 + 9 * k;
       ctx.lineCap = 'round';
       ctx.stroke();
     }
 
-    const glowR = locked ? 20 : 30;
+    const glowR = locked ? 24 : 40;
     const g = ctx.createRadialGradient(L.x, L.y, 0, L.x, L.y, glowR);
     g.addColorStop(0, `rgba(${color},${0.55 * L.alpha})`);
     g.addColorStop(0.4, `rgba(${color},${0.18 * L.alpha})`);
@@ -296,9 +291,12 @@ export class Fx {
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.beginPath();
-    ctx.arc(L.x, L.y, locked ? 3.5 : 5.5, 0, Math.PI * 2);
+    ctx.arc(L.x, L.y, locked ? 4 : 6.5, 0, Math.PI * 2);
     ctx.fillStyle = `rgba(255,255,255,${L.alpha})`;
+    ctx.shadowColor = `rgba(${color},${L.alpha})`;
+    ctx.shadowBlur = 14;
     ctx.fill();
+    ctx.shadowBlur = 0;
 
     if (locked) {
       ctx.beginPath();
