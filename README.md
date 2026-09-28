@@ -31,7 +31,11 @@ npm install          # also downloads the models (~210 MB): MediaPipe gestures +
 npm start            # builds and launches; look for ✋ in the menu bar
 ```
 
-The first launch asks for **Camera** and **Microphone** access. Window tracking also needs **Accessibility**, granted to your terminal app under System Settings → Privacy & Security, because the overlay reads the terminal window's position through System Events.
+The first launch asks for **Camera** and **Microphone** access, and for permission to control **System Events**, which is how it finds the terminal window that shows Herdr. If the laser and pane highlights don't line up, check System Settings → Privacy & Security → Accessibility / Automation for the app you launched `npm start` from.
+
+Herdr must already be running (`herdr` in any terminal). If you use a named session, start with `HERDR_SESSION=<name> npm start`.
+
+**Full screen is the easiest setup for the demo.** Put the terminal running Herdr in native full screen. The overlay follows it onto that Space and there's no title bar to account for.
 
 Try it without Herdr first:
 
@@ -55,7 +59,12 @@ A one-minute script that shows off everything:
 8. **0:48** An agent is going off the rails: point, ✊ and hold. The ring fills and it stops.
 9. **0:55** Drop your hand. The overlay fades away.
 
-Tips: sit about an arm's length from the camera with your hand at chest height. The camera preview in the corner shows what's being tracked. Good front lighting matters more than anything else.
+Tips:
+- Sit about an arm's length from the camera with your hand at chest height. The camera preview in the corner shows what's being tracked. Good front lighting matters more than anything else.
+- Getting agents to block on cue: in Claude Code without auto-accept, ask for something that needs a tool, e.g. *"run the test suite"* or *"deploy with wrangler"*. The permission prompt appears within seconds.
+- Record with QuickTime (⌘⇧5) or OBS. The overlay is an ordinary window, so it gets captured. The corner camera preview helps viewers see which gesture you made. Turn it off from the ✋ menu if you film yourself separately.
+- If the laser feels too twitchy or too slow, change `pointerGain`. If your hand sits high or low in the frame, change `pointerCenter`.
+- Rehearse with `npm run mock` first. The fake agents block on a timer, so you can practise the whole flow without spending tokens.
 
 ## Configuration
 
@@ -91,7 +100,8 @@ If the laser and the highlighted pane don't line up with what you see, adjust `f
 - **Vision**: MediaPipe's gesture recognizer gives 21 hand landmarks plus canned gestures (👍 👎 ✊ ✋) in one model. The pointer is the index fingertip, smoothed with a one-euro filter and eased with a spring at display refresh rate. Pinch is detected from landmarks with hysteresis.
 - **Engine** (`src/engine`): address-then-act. The pane you last pointed at, or the only waiting agent, gets the action. When your index curls into a 👍 or ✊ it drags the fingertip down, so the address rolls back to where the laser was 200 ms earlier. Gestures fire once per pose, with a cooldown, and dangerous approvals need a hold.
 - **Voice**: the mic opens only while a hand is up, and keeps a one-second pre-roll so the first word isn't lost while the pinch is being recognised. Canary re-decodes the utterance a couple of times a second for the live transcript, then once more on release. The transcript is shown for 0.7 s before it's sent (1.5 s for long prompts); 👎 cancels.
-- **Herdr**: see `src/main/herdr.ts`.
+- **Herdr** (`src/main/herdr.ts`, tested against herdr 0.9.1): a plain client of the session socket (`~/.config/herdr/herdr.sock`, or `HERDR_SESSION` / `HERDR_SOCKET_PATH`). State comes from `session.snapshot`, refreshed on every `events.subscribe` event (layout, focus, per-pane agent status) plus a 1 s poll. Approve, deny and stop are `agent.send_keys` (Enter / Esc for Claude Code, `y` / Esc for Codex); dictation is `agent.prompt`; zoom is `pane.zoom`. Blocked panes are read with `pane.read` so the danger list can see the pending command. No changes to Herdr or the agent CLIs.
+- **Geometry** (`src/main/geometry.ts`): `pane.layout` rects are in cells relative to the tab area. `pane.graphics.info` gives the attached client's cell size in pixels. Together with the terminal window's frame (System Events), that places every pane to the pixel, after Herdr's sidebar and tab bar.
 
 ## Development
 

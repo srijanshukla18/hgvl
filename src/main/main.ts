@@ -294,7 +294,7 @@ app.whenReady().then(async () => {
 
   herdr.start();
   void trackTerminalWindow();
-  setInterval(() => void trackTerminalWindow(), 1000);
+  setInterval(() => void trackTerminalWindow(), 2000);
 });
 
 app.on('will-quit', () => {

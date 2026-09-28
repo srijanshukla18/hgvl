@@ -117,10 +117,10 @@ export class Fx {
     ctx.clearRect(0, 0, innerWidth, innerHeight);
 
     // Per-pane focus easing.
-    const focusId = v?.hoverPaneId ?? v?.addressedPaneId ?? null;
+    const focusId = this.talkPaneId ?? v?.hoverPaneId ?? v?.addressedPaneId ?? null;
     for (const p of this.layout.panes) {
       const a = this.panes.get(p.id) ?? { focus: 0, seen: now };
-      a.focus = approach(a.focus, p.id === focusId && armed ? 1 : 0, dt, 14);
+      a.focus = approach(a.focus, p.id === focusId && (armed || p.id === this.talkPaneId) ? 1 : 0, dt, 14);
       a.seen = now;
       this.panes.set(p.id, a);
     }
@@ -169,7 +169,7 @@ export class Fx {
       const f = easeOutBack(a.focus);
       const grow = (1 - f) * 16;
       const fr = inset(r, -grow);
-      const color = p.state === 'blocked' ? C.blocked : C.accent;
+      const color = p.id === this.talkPaneId ? C.talk : p.state === 'blocked' ? C.blocked : C.accent;
       glowStroke(ctx, fr, 12, color, a.focus, 2.5);
       brackets(ctx, inset(fr, -6), 26, `rgba(${color},${a.focus})`, 3.5);
       edgeGlow(ctx, r, color, 0.08 * a.focus);
