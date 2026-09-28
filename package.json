@@ -12,6 +12,16 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^1.0.1"
+    "@mediapipe/tasks-vision": "^1.0.1",
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "mock": "npm run build && HANDS_MOCK=1 electron .",
+    "models": "node scripts/fetch-models.mjs",
+    "postinstall": "node scripts/fetch-models.mjs",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p ."
   }
 }

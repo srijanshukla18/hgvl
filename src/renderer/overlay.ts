@@ -431,6 +431,8 @@ function escapeHtml(s: string): string {
   get delegate() {
     return vision.delegate;
   },
+  simulate: (e: EngineEvent) => handle(e),
+  speech: (e: SpeechEvent) => onSpeech(e),
 };
 
 void boot();
