@@ -2,7 +2,7 @@
 // worker, and keeps the HUD, talk card and canvas effects in sync.
 
 import { GestureEngine, type EngineEvent, type EngineView } from '../engine/engine.ts';
-import type { HandsBridge, LayoutSnapshot, PaneView, SpeechEvent } from '../shared/types.ts';
+import type { HandsBridge, Intent, LayoutSnapshot, PaneView, Route, SpeechEvent } from '../shared/types.ts';
 import { Mic } from './audio.ts';
 import { Fx, type BurstKind } from './fx.ts';
 import { drawSkeleton } from './skeleton.ts';
@@ -24,10 +24,11 @@ const mic = new Mic();
 const sounds = new Sounds();
 let engine = new GestureEngine();
 
-let layout: LayoutSnapshot = { connected: false, frame: { x: 0, y: 0, w: innerWidth, h: innerHeight }, panes: [], zoomedPaneId: null };
+let layout: LayoutSnapshot = { connected: false, frame: { x: 0, y: 0, w: innerWidth, h: innerHeight }, panes: [] };
 let view: EngineView | null = null;
 let enabled = true;
 let showCamera = true;
+let jevOn = false;
 let micCloseTimer: number | undefined;
 let fps = 0;
 
@@ -35,20 +36,25 @@ let fps = 0;
 
 interface Utterance {
   id: number;
-  paneId: string;
+  /** The agent pointed at when the pinch started; null when talking to herdr as a whole (Jev only). */
+  paneId: string | null;
   text: string;
   final: boolean;
-  /** When the final transcript arrived and the send countdown started. */
-  sendAt: number | null;
-  sendDur: number;
+  /** What 👍 will do, once decided. */
+  route: Route | null;
+  /** Unconfirmed transcripts are dropped at this time (performance.now()). */
+  expiresAt: number | null;
 }
+
+/** A transcript waits this long for 👍 / 👎 before it is quietly dropped. */
+const CONFIRM_TIMEOUT_MS = 20000;
 let utterId = 0;
 let utter: Utterance | null = null;
 
 const talkEl = $('talk');
 const talkText = $('talk-text');
 const talkTarget = $('talk-target');
-const talkProgress = $('talk-progress');
+const talkConfirm = $('talk-confirm');
 const waveCanvas = $('talk-wave') as HTMLCanvasElement;
 
 // ---- boot -------------------------------------------------------------------------
@@ -57,6 +63,7 @@ async function boot(): Promise<void> {
   const cfg = await bridge.config();
   sounds.enabled = cfg.sounds;
   showCamera = cfg.showCamera;
+  jevOn = cfg.jev;
   engine = new GestureEngine({
     gain: cfg.pointerGain,
     centerX: cfg.pointerCenter[0],
@@ -112,7 +119,7 @@ function onFrame(f: { hand: import('../engine/features.ts').HandFrame | null; t:
   if (!enabled) return;
   if (lastFrameT) fps = fps * 0.9 + (1000 / Math.max(1, f.t - lastFrameT)) * 0.1;
   lastFrameT = f.t;
-  const r = engine.update(f.hand, f.t, { panes: layout.panes, frame: layout.frame, zoomedPaneId: layout.zoomedPaneId });
+  const r = engine.update(f.hand, f.t, { panes: layout.panes, frame: layout.frame, pendingSend: utter !== null && !view?.talking });
   view = r.view;
   fx.view = r.view;
   for (const e of r.events) void handle(e);
@@ -133,16 +140,13 @@ async function handle(e: EngineEvent): Promise<void> {
       break;
     case 'disarm':
       clearTimeout(micCloseTimer);
-      micCloseTimer = window.setTimeout(() => !view?.armed && !utter && mic.close(), 8000);
+      micCloseTimer = window.setTimeout(() => !view?.armed && mic.close(), 8000);
       break;
     case 'approve':
       await act({ kind: 'approve', paneId: e.paneId }, 'approve', `Approved ${name(e.paneId)}`);
       break;
     case 'deny':
-      // Thumbs down while a transcript is pending cancels the send.
-      if (utter) {
-        abortUtterance(true);
-      } else if (e.paneId) {
+      if (e.paneId) {
         await act({ kind: 'deny', paneId: e.paneId }, 'deny', `Denied ${name(e.paneId)}`);
       } else {
         toast(nobodyBlocked());
@@ -151,8 +155,13 @@ async function handle(e: EngineEvent): Promise<void> {
     case 'interrupt':
       await act({ kind: 'interrupt', paneId: e.paneId }, 'stop', `Stopped ${name(e.paneId)}`);
       break;
-    case 'zoom':
-      await act({ kind: 'zoom', paneId: e.paneId }, 'zoom', null);
+    case 'send':
+      if (!utter) break;
+      if (!utter.route) toast('Still working it out — 👍 again once the card says what it will do');
+      else await commitUtterance(utter);
+      break;
+    case 'cancel':
+      abortUtterance(true);
       break;
     case 'talkStart':
       startUtterance(e.paneId, e.preRollMs);
@@ -168,12 +177,12 @@ async function handle(e: EngineEvent): Promise<void> {
 }
 
 async function act(
-  intent: Parameters<HandsBridge['intent']>[0],
+  intent: Extract<Intent, { paneId: string }>,
   burst: BurstKind,
   message: string | null,
 ): Promise<boolean> {
   fx.burst(burst, intent.paneId);
-  sounds.play(burst === 'zoom' ? 'zoom' : burst === 'stop' ? 'stop' : burst === 'deny' ? 'deny' : 'approve');
+  sounds.play(burst === 'stop' ? 'stop' : burst === 'deny' ? 'deny' : 'approve');
   const res = await bridge.intent(intent);
   if (!res.ok) {
     toast(`⚠︎ ${res.error ?? 'herdr refused'}`);
@@ -186,25 +195,22 @@ async function act(
 // ---- voice ---------------------------------------------------------------------------------
 
 function startUtterance(paneId: string | null, preRollMs: number): void {
-  if (!paneId) {
-    toast('Point at an agent, then pinch and hold to talk');
-    sounds.play('cancel');
-    return;
-  }
   // Dictation types into the pane and presses Enter: only ever do that to an agent, never a shell.
-  if (!layout.panes.find((p) => p.id === paneId)?.agent) {
-    toast(`${name(paneId)} isn't an agent — point at one to talk`);
+  const agent = layout.panes.find((p) => p.id === paneId && p.agent);
+  // With Jev you can talk without pointing: it works out the agent, tab or workspace you mean.
+  if (!agent && !jevOn) {
+    toast(paneId ? `${name(paneId)} isn't an agent — point at one to talk` : 'Point at an agent, then pinch and hold to talk');
     sounds.play('cancel');
     return;
   }
   abortUtterance(false);
   const id = ++utterId;
-  utter = { id, paneId, text: '', final: false, sendAt: null, sendDur: 700 };
-  talkTarget.textContent = name(paneId);
+  utter = { id, paneId: agent?.id ?? null, text: '', final: false, route: null, expiresAt: null };
+  talkTarget.textContent = agent ? agent.label : 'herdr';
   talkText.innerHTML = '<span class="placeholder">listening…</span>';
-  talkProgress.style.width = '0%';
-  talkEl.classList.remove('hidden', 'leaving', 'cancelled');
-  fx.talkPaneId = paneId;
+  talkConfirm.textContent = '';
+  talkEl.classList.remove('hidden', 'leaving', 'cancelled', 'confirm');
+  fx.talkPaneId = agent?.id ?? null;
   sounds.play('talk');
   bridge.speechStart(id);
   mic
@@ -233,6 +239,7 @@ function abortUtterance(withFx: boolean): void {
     fx.burst('cancel', null, cardCenter());
     sounds.play('cancel');
     toast('Cancelled');
+    talkEl.classList.remove('confirm');
     talkEl.classList.add('cancelled');
     const el = talkEl;
     setTimeout(() => el.classList.add('hidden'), 400);
@@ -253,7 +260,7 @@ function onSpeech(e: SpeechEvent): void {
     if (utter && !view?.talking) abortUtterance(false);
     return;
   }
-  if (!utter || e.id !== utter.id) return;
+  if (!utter || e.id !== utter.id || utter.final) return;
   utter.text = e.text.trim();
   if (e.kind === 'partial') {
     if (utter.text) talkText.innerHTML = `<span class="partial">${escapeHtml(utter.text)}</span>`;
@@ -269,43 +276,89 @@ function onSpeech(e: SpeechEvent): void {
     return;
   }
   talkText.textContent = utter.text;
-  utter.sendDur = utter.text.length > 240 ? 1500 : 700;
-  utter.sendAt = performance.now();
+  talkConfirm.textContent = jevOn ? 'deciding…' : '';
+  void routeUtterance(utter);
+}
+
+/** Work out what the words should do, then wait for 👍 / 👎. */
+async function routeUtterance(u: Utterance): Promise<void> {
+  let route: Route;
+  try {
+    route = await bridge.route({ text: u.text, paneId: u.paneId });
+  } catch (err) {
+    route = { kind: 'none', reason: `couldn't route: ${String(err)}` };
+  }
+  if (utter !== u) return;
+  if (route.kind === 'none') {
+    talkConfirm.textContent = route.reason;
+    sounds.play('cancel');
+    setTimeout(() => utter === u && abortUtterance(false), 1800);
+    return;
+  }
+  u.route = route;
+  if ('paneId' in route) {
+    talkTarget.textContent = name(route.paneId);
+    fx.talkPaneId = route.paneId;
+  }
+  talkConfirm.textContent = `👍 ${describe(route)}   ·   👎 cancel`;
+  talkEl.classList.add('confirm');
+  u.expiresAt = performance.now() + CONFIRM_TIMEOUT_MS;
+}
+
+function describe(r: Exclude<Route, { kind: 'none' }>): string {
+  switch (r.kind) {
+    case 'prompt':
+      return `send to ${name(r.paneId)}`;
+    case 'approve':
+      return `approve ${name(r.paneId)}`;
+    case 'deny':
+      return `deny ${name(r.paneId)}`;
+    case 'interrupt':
+      return `stop ${name(r.paneId)}`;
+    case 'focusTab':
+      return `go to tab ${r.label}`;
+    case 'focusWorkspace':
+      return `go to workspace ${r.label}`;
+  }
 }
 
 async function commitUtterance(u: Utterance): Promise<void> {
-  const pane = layout.panes.find((p) => p.id === u.paneId);
+  const route = u.route;
+  if (!route || route.kind === 'none') return;
   const from = cardCenter();
   talkEl.classList.add('leaving');
   setTimeout(() => talkEl.classList.add('hidden'), 260);
   utter = null;
   fx.talkPaneId = null;
 
-  // A spoken yes/no to an agent that is asking something answers the question.
-  const word = u.text.toLowerCase().replace(/[^a-z' ]/g, '').trim();
-  if (pane?.state === 'blocked' && YES.has(word)) {
-    await act({ kind: 'approve', paneId: u.paneId }, 'approve', `Approved ${pane.label}`);
-    return;
+  switch (route.kind) {
+    case 'approve':
+      await act({ kind: 'approve', paneId: route.paneId }, 'approve', `Approved ${name(route.paneId)}`);
+      return;
+    case 'deny':
+      await act({ kind: 'deny', paneId: route.paneId }, 'deny', `Denied ${name(route.paneId)}`);
+      return;
+    case 'interrupt':
+      await act({ kind: 'interrupt', paneId: route.paneId }, 'stop', `Stopped ${name(route.paneId)}`);
+      return;
+    case 'focusTab':
+    case 'focusWorkspace': {
+      sounds.play('send');
+      const res = await bridge.intent(
+        route.kind === 'focusTab' ? { kind: 'focusTab', tabId: route.tabId } : { kind: 'focusWorkspace', workspaceId: route.workspaceId },
+      );
+      toast(res.ok ? describe(route).replace(/^go to/, 'Went to') : `⚠︎ ${res.error ?? 'herdr refused'}`);
+      return;
+    }
+    case 'prompt': {
+      fx.comet(from, route.paneId);
+      sounds.play('send');
+      const res = await bridge.intent({ kind: 'prompt', paneId: route.paneId, text: u.text });
+      toast(res.ok ? `Sent to ${name(route.paneId)}` : `⚠︎ ${res.error ?? 'could not send'}`);
+      return;
+    }
   }
-  if (pane?.state === 'blocked' && NO.has(word)) {
-    await act({ kind: 'deny', paneId: u.paneId }, 'deny', `Denied ${pane.label}`);
-    return;
-  }
-  if (pane && STOP.has(word)) {
-    await act({ kind: 'interrupt', paneId: u.paneId }, 'stop', `Stopped ${pane.label}`);
-    return;
-  }
-
-  fx.comet(from, u.paneId);
-  sounds.play('send');
-  const res = await bridge.intent({ kind: 'prompt', paneId: u.paneId, text: u.text });
-  if (!res.ok) toast(`⚠︎ ${res.error ?? 'could not send'}`);
-  else toast(`Sent to ${name(u.paneId)}`);
 }
-
-const YES = new Set(['yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'approve', 'approved', 'go', 'go ahead', 'do it', 'proceed', 'yes please', 'ship it']);
-const NO = new Set(['no', 'nope', 'deny', 'denied', 'no thanks', 'dont', "don't", 'reject']);
-const STOP = new Set(['stop', 'wait', 'hold on', 'cancel', 'abort']);
 
 function cardCenter(): { x: number; y: number } {
   const r = talkEl.getBoundingClientRect();
@@ -314,7 +367,9 @@ function cardCenter(): { x: number; y: number } {
 
 function placeCard(): void {
   if (!utter) return;
-  const pane = layout.panes.find((p) => p.id === utter!.paneId);
+  const route = utter.route;
+  const id = route && 'paneId' in route ? route.paneId : utter.paneId;
+  const pane = layout.panes.find((p) => p.id === id);
   const r = pane?.rect ?? layout.frame;
   const w = talkEl.offsetWidth;
   const h = talkEl.offsetHeight;
@@ -347,10 +402,9 @@ function loop(now: number): void {
   if (utter) {
     placeCard();
     if (!utter.final) drawWave();
-    if (utter.sendAt !== null) {
-      const k = Math.min(1, (now - utter.sendAt) / utter.sendDur);
-      talkProgress.style.width = `${k * 100}%`;
-      if (k >= 1) void commitUtterance(utter);
+    if (utter.expiresAt !== null && now >= utter.expiresAt) {
+      toast('Not sent');
+      abortUtterance(false);
     }
   }
   requestAnimationFrame(loop);
@@ -438,6 +492,9 @@ function escapeHtml(s: string): string {
   },
   get fps() {
     return fps;
+  },
+  get utterance() {
+    return utter && { id: utter.id, route: utter.route };
   },
   get delegate() {
     return vision.delegate;

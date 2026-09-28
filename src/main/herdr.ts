@@ -19,11 +19,14 @@ interface Rect {
 }
 
 interface Snapshot {
+  focused_workspace_id: string | null;
   focused_tab_id: string | null;
   focused_pane_id: string | null;
   panes: { pane_id: string; tab_id: string; focused: boolean; agent_status?: string; cwd?: string; foreground_cwd?: string }[];
   layouts: { tab_id: string; zoomed: boolean; area: Rect; focused_pane_id: string; panes: { pane_id: string; focused: boolean; rect: Rect }[] }[];
   agents: { pane_id: string; agent: string; name?: string | null; agent_status: string; cwd?: string; foreground_cwd?: string }[];
+  workspaces?: { workspace_id: string; label: string; number: number }[];
+  tabs?: { tab_id: string; workspace_id: string; label: string; number: number }[];
 }
 
 class HerdrError extends Error {
@@ -56,7 +59,7 @@ const GLOBAL_EVENTS = [
 ];
 
 export class HerdrClient extends EventEmitter implements HerdrSource {
-  model: HerdrModel = { connected: false, area: { w: 0, h: 0 }, cellPx: null, chrome: true, panes: [], zoomedPaneId: null };
+  model: HerdrModel = { connected: false, area: { w: 0, h: 0 }, cellPx: null, chrome: true, panes: [], zoomedPaneId: null, tabs: [], workspaces: [] };
   private path: string;
   private seq = 0;
   private sub: net.Socket | null = null;
@@ -169,9 +172,22 @@ export class HerdrClient extends EventEmitter implements HerdrSource {
   }
 
   private async apply(s: Snapshot): Promise<void> {
+    const tabs = (s.tabs ?? []).map((t) => ({
+      id: t.tab_id,
+      label: t.label,
+      number: t.number,
+      workspaceId: t.workspace_id,
+      focused: t.tab_id === s.focused_tab_id,
+    }));
+    const workspaces = (s.workspaces ?? []).map((w) => ({
+      id: w.workspace_id,
+      label: w.label,
+      number: w.number,
+      focused: w.workspace_id === s.focused_workspace_id,
+    }));
     const layout = s.layouts.find((l) => l.tab_id === s.focused_tab_id) ?? s.layouts[0];
     if (!layout) {
-      this.model = { ...this.model, connected: true, panes: [], error: undefined };
+      this.model = { ...this.model, connected: true, panes: [], tabs, workspaces, error: undefined };
       this.emit('change', this.model);
       return;
     }
@@ -212,6 +228,8 @@ export class HerdrClient extends EventEmitter implements HerdrSource {
       chrome: true,
       panes,
       zoomedPaneId,
+      tabs,
+      workspaces,
       error: undefined,
     };
     this.emit('change', this.model);
@@ -333,9 +351,18 @@ export class HerdrClient extends EventEmitter implements HerdrSource {
     return this.keys(paneId, k.interrupt);
   }
 
-  async zoom(paneId: string): Promise<IntentResult> {
+  async focus(paneId: string): Promise<IntentResult> {
     try {
-      await this.request('pane.zoom', { pane_id: paneId, mode: 'toggle' });
+      await this.request('agent.focus', { target: paneId });
+      return { ok: true };
+    } catch (err) {
+      return fail(err);
+    }
+  }
+
+  async focusTab(tabId: string): Promise<IntentResult> {
+    try {
+      await this.request('tab.focus', { tab_id: tabId });
       this.scheduleRefresh(0);
       return { ok: true };
     } catch (err) {
@@ -343,9 +370,10 @@ export class HerdrClient extends EventEmitter implements HerdrSource {
     }
   }
 
-  async focus(paneId: string): Promise<IntentResult> {
+  async focusWorkspace(workspaceId: string): Promise<IntentResult> {
     try {
-      await this.request('agent.focus', { target: paneId });
+      await this.request('workspace.focus', { workspace_id: workspaceId });
+      this.scheduleRefresh(0);
       return { ok: true };
     } catch (err) {
       return fail(err);

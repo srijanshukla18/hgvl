@@ -29,6 +29,16 @@ export class MockHerdr extends EventEmitter implements HerdrSource {
       chrome: false,
       panes: this.base.map((p) => ({ ...p })),
       zoomedPaneId: null,
+      workspaces: [
+        { id: 'mw1', label: 'checkout', number: 1, focused: true },
+        { id: 'mw2', label: 'infra', number: 2, focused: false },
+      ],
+      tabs: [
+        { id: 'mw1:t1', label: 'agents', number: 1, workspaceId: 'mw1', focused: true },
+        { id: 'mw1:t2', label: 'api', number: 2, workspaceId: 'mw1', focused: false },
+        { id: 'mw1:t3', label: 'dashboard', number: 3, workspaceId: 'mw1', focused: false },
+        { id: 'mw2:t1', label: 'terraform', number: 1, workspaceId: 'mw2', focused: false },
+      ],
     };
   }
 
@@ -59,14 +69,27 @@ export class MockHerdr extends EventEmitter implements HerdrSource {
     return { ok: true };
   }
 
-  async zoom(id: string): Promise<IntentResult> {
-    this.model.zoomedPaneId = this.model.zoomedPaneId === id ? null : id;
-    this.relayout();
+  async focus(id: string): Promise<IntentResult> {
+    for (const p of this.model.panes) p.focused = p.id === id;
+    this.emitChange();
     return { ok: true };
   }
 
-  async focus(id: string): Promise<IntentResult> {
-    for (const p of this.model.panes) p.focused = p.id === id;
+  // Navigation only moves the focus markers: the mock always shows the same four agents.
+  async focusTab(id: string): Promise<IntentResult> {
+    const tab = this.model.tabs.find((t) => t.id === id);
+    if (!tab) return { ok: false, error: 'no such tab' };
+    for (const t of this.model.tabs) t.focused = t === tab;
+    for (const w of this.model.workspaces) w.focused = w.id === tab.workspaceId;
+    this.emitChange();
+    return { ok: true };
+  }
+
+  async focusWorkspace(id: string): Promise<IntentResult> {
+    if (!this.model.workspaces.some((w) => w.id === id)) return { ok: false, error: 'no such workspace' };
+    for (const w of this.model.workspaces) w.focused = w.id === id;
+    const first = this.model.tabs.find((t) => t.workspaceId === id);
+    for (const t of this.model.tabs) t.focused = t === first;
     this.emitChange();
     return { ok: true };
   }

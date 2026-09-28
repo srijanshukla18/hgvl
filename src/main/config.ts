@@ -34,6 +34,11 @@ export interface HandsConfig {
   agents: Record<string, Partial<KeyMap>>;
   /** Start with fake panes instead of connecting to herdr (for trying the overlay). */
   mock: boolean;
+  /**
+   * Jev over OpenRouter for voice commands, picking the agent you mean and
+   * judging risky approvals. Active only when OPENROUTER_API_KEY is set.
+   */
+  jev: { enabled: boolean; model: string; timeoutMs: number };
 }
 
 export const configPath = join(homedir(), '.config', 'herdr', 'hands.json');
@@ -52,6 +57,7 @@ export const defaults: HandsConfig = {
   sttModelDir: null,
   agents: {},
   mock: false,
+  jev: { enabled: true, model: 'typesafe/jev-1.13', timeoutMs: 3000 },
 };
 
 export function loadConfig(): HandsConfig {
@@ -67,8 +73,18 @@ export function loadConfig(): HandsConfig {
     ...defaults,
     ...user,
     frameInsets: { ...defaults.frameInsets, ...(user.frameInsets ?? {}) },
+    jev: { ...defaults.jev, ...(user.jev ?? {}) },
   };
   if (process.env.HANDS_MOCK === '1') cfg.mock = true;
   if (process.env.HANDS_DELEGATE === 'CPU' || process.env.HANDS_DELEGATE === 'GPU') cfg.visionDelegate = process.env.HANDS_DELEGATE;
   return cfg;
+}
+
+/** KEY=value lines from a .env file, without overriding the real environment. */
+export function loadDotEnv(path: string): void {
+  if (!existsSync(path)) return;
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
 }

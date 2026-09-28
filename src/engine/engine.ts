@@ -1,5 +1,5 @@
 // The intent engine: turns a stream of hand frames into a laser pointer, an
-// addressed pane, and discrete events (approve, deny, interrupt, zoom, talk).
+// addressed pane, and discrete events (approve, deny, interrupt, talk, send).
 // Pure logic, no DOM or IPC, so it can be unit-tested with synthetic frames.
 
 import type { PaneView, Rect } from '../shared/types.ts';
@@ -22,7 +22,8 @@ export interface EngineConfig {
   confirmHoldMs: number;
   pinchOn: number;
   pinchOff: number;
-  pinchTapMaxMs: number;
+  /** A pinch held this long starts dictation; shorter pinches are ignored. */
+  talkHoldMs: number;
   addressGraceMs: number;
   cooldownMs: number;
   minCutoff: number;
@@ -43,7 +44,7 @@ export const defaultEngineConfig: EngineConfig = {
   confirmHoldMs: 900,
   pinchOn: 0.32,
   pinchOff: 0.5,
-  pinchTapMaxMs: 300,
+  talkHoldMs: 300,
   addressGraceMs: 3500,
   cooldownMs: 650,
   minCutoff: 1.4,
@@ -58,9 +59,11 @@ export type EngineEvent =
   | { type: 'approve'; paneId: string; confirmed: boolean }
   | { type: 'deny'; paneId: string | null }
   | { type: 'interrupt'; paneId: string }
-  | { type: 'zoom'; paneId: string }
   | { type: 'talkStart'; paneId: string | null; preRollMs: number }
   | { type: 'talkEnd'; paneId: string | null }
+  /** 👍 / 👎 while a transcript waits for confirmation. */
+  | { type: 'send' }
+  | { type: 'cancel' }
   | { type: 'hint'; text: string };
 
 export interface HoldView {
@@ -83,7 +86,8 @@ export interface EngineView {
 export interface EngineContext {
   panes: PaneView[];
   frame: Rect;
-  zoomedPaneId: string | null;
+  /** A transcript is on screen waiting for 👍 (send) or 👎 (cancel). */
+  pendingSend: boolean;
 }
 
 type PinchState =
@@ -170,17 +174,11 @@ export class GestureEngine {
       this.hold = null;
     } else if (this.pinch.phase === 'down') {
       if (!pinchClosed) {
-        const target = this.pinch.paneId ?? ctx.zoomedPaneId;
-        if (target) {
-          events.push({ type: 'zoom', paneId: target });
-          this.cooldownUntil = now + this.cfg.cooldownMs;
-        } else {
-          events.push({ type: 'hint', text: 'Point at a pane, then pinch to zoom' });
-        }
+        // Too short to be dictation: a flicker of the detector, not an intent.
         this.pinch = { phase: 'none' };
-      } else if (now - this.pinch.since >= this.cfg.pinchTapMaxMs) {
+      } else if (now - this.pinch.since >= this.cfg.talkHoldMs) {
         this.pinch = { phase: 'talk', since: this.pinch.since, paneId: this.pinch.paneId };
-        events.push({ type: 'talkStart', paneId: this.pinch.paneId, preRollMs: this.cfg.pinchTapMaxMs + 200 });
+        events.push({ type: 'talkStart', paneId: this.pinch.paneId, preRollMs: this.cfg.talkHoldMs + 200 });
       }
     } else if (this.pinch.phase === 'talk' && !pinchClosed) {
       events.push({ type: 'talkEnd', paneId: this.pinch.paneId });
@@ -227,7 +225,13 @@ export class GestureEngine {
       this.hold = null;
     }
 
-    if (ready && fresh('Thumb_Up')) {
+    if (ready && ctx.pendingSend && fresh('Thumb_Up')) {
+      events.push({ type: 'send' });
+      this.fire('Thumb_Up', now);
+    } else if (ready && ctx.pendingSend && fresh('Thumb_Down')) {
+      events.push({ type: 'cancel' });
+      this.fire('Thumb_Down', now);
+    } else if (ready && fresh('Thumb_Up')) {
       const target = this.resolveTarget(ctx, ['blocked']);
       if (!target) {
         events.push({ type: 'hint', text: nobody(ctx, this.addressedPane(ctx), 'approve') });
@@ -243,7 +247,6 @@ export class GestureEngine {
         this.fire('Thumb_Up', now);
       }
     } else if (ready && fresh('Thumb_Down')) {
-      // Deny is also "cancel": the overlay uses a paneless deny to abort a pending send.
       const target = this.resolveTarget(ctx, ['blocked']);
       events.push({ type: 'deny', paneId: target?.id ?? null });
       this.fire('Thumb_Down', now);

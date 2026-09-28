@@ -5,7 +5,7 @@
 import type { EngineView } from '../engine/engine.ts';
 import type { LayoutSnapshot, PaneView, Rect } from '../shared/types.ts';
 
-export type BurstKind = 'approve' | 'deny' | 'stop' | 'zoom' | 'send' | 'cancel';
+export type BurstKind = 'approve' | 'deny' | 'stop' | 'send' | 'cancel';
 
 const C = {
   accent: '56,225,255',
@@ -23,7 +23,6 @@ const BURST_COLOR: Record<BurstKind, string> = {
   approve: C.approve,
   deny: C.deny,
   stop: C.stop,
-  zoom: C.accent,
   send: C.talk,
   cancel: C.deny,
 };
@@ -51,7 +50,7 @@ export class Fx {
   private ctx: CanvasRenderingContext2D;
   private canvas: HTMLCanvasElement;
   private dpr = 1;
-  layout: LayoutSnapshot = { connected: false, frame: { x: 0, y: 0, w: 0, h: 0 }, panes: [], zoomedPaneId: null };
+  layout: LayoutSnapshot = { connected: false, frame: { x: 0, y: 0, w: 0, h: 0 }, panes: [] };
   view: EngineView | null = null;
   talkLevel = 0;
   talkPaneId: string | null = null;
@@ -416,17 +415,6 @@ function glyph(ctx: CanvasRenderingContext2D, kind: BurstKind | 'stop', x: numbe
       roundRect(ctx, { x: x - s * 0.5, y: y - s * 0.5, w: s, h: s }, s * 0.18);
       ctx.fill();
       break;
-    case 'zoom': {
-      const a = s * 0.62;
-      const l = s * 0.34;
-      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        ctx.moveTo(x + sx * a, y + sy * (a - l));
-        ctx.lineTo(x + sx * a, y + sy * a);
-        ctx.lineTo(x + sx * (a - l), y + sy * a);
-      }
-      ctx.stroke();
-      break;
-    }
     case 'send':
       break;
   }

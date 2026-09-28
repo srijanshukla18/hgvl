@@ -184,18 +184,17 @@ body {
   font-style: italic;
   font-weight: 400;
 }
-.talk-bar {
+.talk-confirm {
   margin-top: 10px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.06);
-  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(238, 241, 247, 0.55);
 }
-#talk-progress {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, var(--talk), var(--accent));
-  border-radius: 2px;
+.talk-confirm:empty {
+  display: none;
+}
+.talk.confirm {
+  border-color: rgba(167, 139, 250, 0.7);
 }
 
 /* ---- camera picture-in-picture -------------------------------------------------- */
