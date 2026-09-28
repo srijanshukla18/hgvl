@@ -8,6 +8,7 @@ import { join, normalize } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Intent, IntentResult, LayoutSnapshot, OverlayConfig, PaneView, Rect } from '../shared/types.ts';
 import { configPath, loadConfig, type KeyMap } from './config.ts';
+import { cellsToRect, solveGrid } from './geometry.ts';
 import { HerdrClient } from './herdr.ts';
 import { MockHerdr } from './mock.ts';
 import { DEFAULT_KEYS, type HerdrModel, type HerdrSource } from './model.ts';
@@ -94,7 +95,7 @@ function createOverlay(): BrowserWindow {
 }
 
 /** Move the overlay onto the display that shows the terminal. */
-function placeOverlay(): Rect {
+function placeOverlay(): { rect: Rect; scale: number } {
   const target = termBounds
     ? screen.getDisplayMatching({ x: termBounds.x, y: termBounds.y, width: termBounds.w, height: termBounds.h })
     : screen.getPrimaryDisplay();
@@ -103,13 +104,13 @@ function placeOverlay(): Rect {
     const cur = overlay.getBounds();
     if (cur.x !== b.x || cur.y !== b.y || cur.width !== b.width || cur.height !== b.height) overlay.setBounds(b);
   }
-  return { x: b.x, y: b.y, w: b.width, h: b.height };
+  return { rect: { x: b.x, y: b.y, w: b.width, h: b.height }, scale: target.scaleFactor };
 }
 
 // ---- herdr → overlay layout ------------------------------------------------------------------
 
 function computeLayout(model: HerdrModel): LayoutSnapshot {
-  const disp = placeOverlay();
+  const { rect: disp, scale } = placeOverlay();
   let frame: Rect;
   if (termBounds) {
     const fullscreen = termBounds.w >= disp.w - 2 && termBounds.h >= disp.h - 2;
@@ -124,8 +125,7 @@ function computeLayout(model: HerdrModel): LayoutSnapshot {
   } else {
     frame = { x: 0, y: 0, w: disp.w, h: disp.h };
   }
-  const cw = frame.w / Math.max(1, model.cols);
-  const ch = frame.h / Math.max(1, model.rows);
+  const grid = solveGrid({ content: frame, area: model.area, cellPx: model.cellPx, scale, chrome: model.chrome });
   const panes: PaneView[] = model.panes.map((p) => {
     const tail = (p.tail ?? '').toLowerCase();
     return {
@@ -134,11 +134,14 @@ function computeLayout(model: HerdrModel): LayoutSnapshot {
       label: p.label,
       state: p.state,
       focused: p.focused,
-      rect: { x: frame.x + p.cells.x * cw, y: frame.y + p.cells.y * ch, w: p.cells.w * cw, h: p.cells.h * ch },
+      rect: cellsToRect(grid, p.cells),
       danger: p.state === 'blocked' ? (cfg.dangerList.find((d) => tail.includes(d.toLowerCase())) ?? null) : null,
     };
   });
-  return { connected: model.connected, frame, panes, zoomedPaneId: model.zoomedPaneId, error: model.error };
+  // The pointer maps onto the pane area, not the sidebar.
+  const paneArea = cellsToRect(grid, { x: 0, y: 0, w: model.area.w, h: model.area.h });
+  const pointerFrame = paneArea.w > 0 && paneArea.h > 0 ? paneArea : frame;
+  return { connected: model.connected, frame: pointerFrame, panes, zoomedPaneId: model.zoomedPaneId, error: model.error };
 }
 
 function pushLayout(): void {

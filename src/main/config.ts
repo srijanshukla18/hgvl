@@ -4,10 +4,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+/** Herdr logical keys, e.g. ["enter"], ["esc"], ["y"], ["ctrl+c"]. */
 export interface KeyMap {
-  approve: string;
-  deny: string;
-  interrupt: string;
+  approve: string[];
+  deny: string[];
+  interrupt: string[];
 }
 
 export interface HandsConfig {

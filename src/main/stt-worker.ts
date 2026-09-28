@@ -86,7 +86,10 @@ function decode(samples: Float32Array): string {
   const t0 = Date.now();
   recognizer.decode(stream);
   lastDecodeMs = Date.now() - t0;
-  return recognizer.getResult(stream).text.trim();
+  const text = recognizer.getResult(stream).text.trim();
+  // sherpa-onnx forces a token out of any non-silent audio, so a cough or a
+  // beep comes back as "." — no letters or digits means nothing was said.
+  return /[\p{L}\p{N}]/u.test(text) ? text : '';
 }
 
 function joined(u: Utterance): Float32Array {

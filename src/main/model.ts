@@ -1,6 +1,6 @@
-// The daemon's view of Herdr: panes in terminal cell coordinates, agent
-// states, and the commands the gesture layer can issue. Two sources implement
-// it: the real socket client and a mock for trying the overlay without Herdr.
+// The daemon's view of Herdr: panes of the visible tab in cell coordinates,
+// agent states, and the commands the gesture layer can issue. Two sources
+// implement it: the real socket client and a mock for trying the overlay.
 
 import type { EventEmitter } from 'node:events';
 import type { AgentState, IntentResult } from '../shared/types.ts';
@@ -15,20 +15,25 @@ export interface CellRect {
 
 export interface PaneModel {
   id: string;
+  /** Agent kind ("claude", "codex", …) or null for a plain terminal. */
   agent: string | null;
   label: string;
   state: AgentState;
   focused: boolean;
+  /** Rect in cells, relative to the tab area; zero-sized when hidden by zoom. */
   cells: CellRect;
-  /** Recent visible text of the pane (for danger-list checks), when known. */
+  /** Visible text of a blocked pane, for danger-list checks. */
   tail?: string;
 }
 
 export interface HerdrModel {
   connected: boolean;
-  /** Size of the herdr client's terminal grid, in cells. */
-  cols: number;
-  rows: number;
+  /** Tab area in cells; pane rects are relative to it. */
+  area: { w: number; h: number };
+  /** Attached client's cell size in pixels, when Herdr can report it. */
+  cellPx: { w: number; h: number } | null;
+  /** True when Herdr's sidebar and tab bar surround the tab area. */
+  chrome: boolean;
   panes: PaneModel[];
   zoomedPaneId: string | null;
   error?: string;
@@ -46,11 +51,14 @@ export interface HerdrSource extends EventEmitter {
   prompt(paneId: string, text: string): Promise<IntentResult>;
 }
 
-/** Default approval keystrokes per agent CLI (herdr's agent names). */
+/**
+ * Keystrokes per agent kind, as Herdr logical keys. Approve answers with the
+ * highlighted (default) option; deny and interrupt are Esc for every current CLI.
+ */
 export const DEFAULT_KEYS: Record<string, KeyMap> = {
-  claude: { approve: '1', deny: '\x1b', interrupt: '\x1b' },
-  codex: { approve: 'y', deny: 'n', interrupt: '\x1b' },
-  opencode: { approve: '\r', deny: '\x1b', interrupt: '\x1b' },
-  cursor: { approve: 'y', deny: 'n', interrupt: '\x03' },
-  default: { approve: '\r', deny: '\x1b', interrupt: '\x1b' },
+  claude: { approve: ['enter'], deny: ['esc'], interrupt: ['esc'] },
+  codex: { approve: ['y'], deny: ['esc'], interrupt: ['esc'] },
+  opencode: { approve: ['enter'], deny: ['esc'], interrupt: ['esc'] },
+  cursor: { approve: ['y'], deny: ['n'], interrupt: ['ctrl+c'] },
+  default: { approve: ['enter'], deny: ['esc'], interrupt: ['esc'] },
 };

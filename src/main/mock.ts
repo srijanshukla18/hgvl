@@ -22,7 +22,14 @@ export class MockHerdr extends EventEmitter implements HerdrSource {
       { id: 'mock-3', agent: 'opencode', label: 'opencode', state: 'idle', focused: false, cells: { x: 0, y: half.h, ...half } },
       { id: 'mock-4', agent: 'claude', label: 'claude · infra', state: 'working', focused: false, cells: { x: half.w, y: half.h, ...half } },
     ];
-    this.model = { connected: true, cols: COLS, rows: ROWS, panes: this.base.map((p) => ({ ...p })), zoomedPaneId: null };
+    this.model = {
+      connected: true,
+      area: { w: COLS, h: ROWS },
+      cellPx: null,
+      chrome: false,
+      panes: this.base.map((p) => ({ ...p })),
+      zoomedPaneId: null,
+    };
   }
 
   start(): void {

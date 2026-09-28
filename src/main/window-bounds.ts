@@ -14,7 +14,7 @@ export interface WindowInfo {
 }
 
 /** Walk up from a herdr client process to the .app bundle hosting it. */
-export async function findTerminalApp(): Promise<{ app: string; pid: number } | null> {
+export async function findTerminalApp(): Promise<{ app: string; pid?: number } | null> {
   if (process.platform !== 'darwin') return null;
   const { stdout } = await run('ps', ['-axo', 'pid=,ppid=,comm=']);
   const procs = new Map<number, { ppid: number; comm: string }>();
@@ -24,17 +24,18 @@ export async function findTerminalApp(): Promise<{ app: string; pid: number } | 
   }
   // herdr clients are the herdr processes attached to a terminal; the server is
   // a daemon whose ancestry ends at launchd, which the walk below rejects.
-  for (const [pid, p] of procs) {
+  for (const p of procs.values()) {
     if (!/(^|\/)herdr$/.test(p.comm)) continue;
     let cur = p.ppid;
     for (let depth = 0; depth < 12 && cur > 1; depth++) {
       const q = procs.get(cur);
       if (!q) break;
       const app = q.comm.match(/\/([^/]+)\.app\/Contents\/MacOS\//);
-      if (app) return { app: app[1], pid: cur };
+      if (app) return { app: app[1] === 'iTerm' ? 'iTerm2' : app[1], pid: cur };
+      // iTerm2 runs shells under a job server that lives outside its bundle.
+      if (/iTermServer/.test(q.comm)) return { app: 'iTerm2' };
       cur = q.ppid;
     }
-    void pid;
   }
   return null;
 }
@@ -42,8 +43,15 @@ export async function findTerminalApp(): Promise<{ app: string; pid: number } | 
 export async function frontWindowBounds(target: { app: string; pid?: number }): Promise<WindowInfo | null> {
   if (process.platform !== 'darwin') return null;
   const who = target.pid ? `first process whose unix id is ${target.pid}` : `process "${target.app.replace(/"/g, '')}"`;
+  // Prefer the window showing herdr (its title usually says so) over whichever is in front.
   const script = `tell application "System Events" to tell (${who})
     set w to front window
+    repeat with c in windows
+      if name of c contains "herdr" then
+        set w to c
+        exit repeat
+      end if
+    end repeat
     set p to position of w
     set s to size of w
     return (item 1 of p as text) & "," & (item 2 of p as text) & "," & (item 1 of s as text) & "," & (item 2 of s as text)

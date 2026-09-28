@@ -71,7 +71,7 @@ Optional `~/.config/herdr/hands.json`. Every key is optional:
   "terminalApp": "auto",       // or "Ghostty", "iTerm2", "Terminal", "WezTerm", …
   "frameInsets": { "top": "auto", "left": 0, "right": 0, "bottom": 0 },  // trim title bar / padding
   "herdrSocket": null,         // defaults to herdr's own socket discovery
-  "agents": { "claude": { "approve": "1", "deny": "\u001b", "interrupt": "\u001b" } },
+  "agents": { "claude": { "approve": ["enter"], "deny": ["esc"], "interrupt": ["esc"] } },  // herdr logical keys
   "visionDelegate": "GPU"      // or "CPU"
 }
 ```
