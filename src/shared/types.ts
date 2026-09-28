@@ -58,6 +58,7 @@ export interface OverlayConfig {
   dangerList: string[];
   pointerGain: number;
   mirror: boolean;
+  visionDelegate: 'GPU' | 'CPU';
 }
 
 /** API exposed to the overlay by the preload script. */

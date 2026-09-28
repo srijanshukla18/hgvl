@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'self' app: blob: data:; script-src 'self' app: 'wasm-unsafe-eval' blob:; worker-src blob: app:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; connect-src app: blob: data:" />
+    <title>herdr hands</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <canvas id="fx"></canvas>
+
+    <div id="dock">
+      <div id="toasts"></div>
+      <div id="hud" class="hud">
+        <span class="hud-dot"></span>
+        <span class="hud-text">starting…</span>
+      </div>
+      <div id="pip" class="pip hidden">
+        <video id="cam" playsinline muted></video>
+        <canvas id="skeleton"></canvas>
+        <div id="pip-label" class="pip-label"></div>
+      </div>
+    </div>
+
+    <div id="talk" class="talk hidden">
+      <div class="talk-head">
+        <span class="talk-mic"></span>
+        <span class="talk-to">to <b id="talk-target">agent</b></span>
+        <canvas id="talk-wave" width="120" height="28"></canvas>
+      </div>
+      <div id="talk-text" class="talk-text"></div>
+      <div class="talk-bar"><div id="talk-progress"></div></div>
+    </div>
+
+    <div id="legend" class="legend hidden">
+      <div><b>☝️</b> point</div>
+      <div><b>👍</b> approve</div>
+      <div><b>👎</b> deny / cancel</div>
+      <div><b>✊</b> hold · stop</div>
+      <div><b>🤏</b> tap · zoom</div>
+      <div><b>🤏</b> hold · talk</div>
+    </div>
+
+    <script src="overlay.js"></script>
+  </body>
+</html>

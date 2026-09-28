@@ -1,0 +1,258 @@
+:root {
+  --glass: rgba(13, 15, 21, 0.86);
+  --glass-edge: rgba(255, 255, 255, 0.09);
+  --ink: #eef1f7;
+  --ink-dim: #9aa3b5;
+  --accent: #38e1ff;
+  --blocked: #ffb020;
+  --approve: #34d399;
+  --deny: #ff5470;
+  --stop: #ff8a3d;
+  --talk: #a78bfa;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font);
+  color: var(--ink);
+  user-select: none;
+  cursor: none;
+}
+
+#fx {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---- bottom-right dock: hints, status pill, camera ------------------------- */
+#dock {
+  position: fixed;
+  right: calc(var(--frame-right, 0px) + 16px);
+  bottom: calc(var(--frame-bottom, 0px) + 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.hud {
+  height: 30px;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 0 12px;
+  border-radius: 15px;
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: opacity 400ms ease, transform 400ms cubic-bezier(0.2, 0.9, 0.2, 1.2), background 200ms;
+  opacity: 0;
+  transform: translateY(6px) scale(0.96);
+}
+.hud.on {
+  opacity: 1;
+  transform: none;
+}
+.hud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  box-shadow: 0 0 10px currentColor;
+  transition: background 200ms;
+}
+.hud[data-mode="armed"] .hud-dot { background: var(--accent); color: var(--accent); }
+.hud[data-mode="talk"] .hud-dot { background: var(--talk); color: var(--talk); animation: beat 900ms ease-in-out infinite; }
+.hud[data-mode="blocked"] .hud-dot { background: var(--blocked); color: var(--blocked); animation: beat 1400ms ease-in-out infinite; }
+.hud[data-mode="error"] .hud-dot { background: var(--deny); color: var(--deny); }
+.hud-text b { color: #fff; }
+@keyframes beat {
+  50% { transform: scale(1.5); opacity: 0.6; }
+}
+
+/* ---- hints ---------------------------------------------------------------- */
+#toasts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.toast {
+  padding: 7px 12px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  font-size: 12.5px;
+  color: var(--ink);
+  animation: toast-in 220ms cubic-bezier(0.2, 0.9, 0.2, 1.2);
+  transition: opacity 300ms, transform 300ms;
+}
+.toast.out {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+}
+
+/* ---- talk card ------------------------------------------------------------- */
+.talk {
+  position: fixed;
+  width: min(560px, 80vw);
+  box-sizing: border-box;
+  padding: 14px 18px 12px;
+  border-radius: 16px;
+  background: rgba(16, 13, 28, 0.92);
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.12), 0 18px 60px rgba(0, 0, 0, 0.55), 0 0 42px rgba(167, 139, 250, 0.25);
+  transform-origin: 50% 100%;
+  animation: talk-in 260ms cubic-bezier(0.2, 0.9, 0.2, 1.15);
+  transition: left 180ms ease, top 180ms ease, opacity 250ms, transform 250ms;
+}
+.talk.leaving {
+  opacity: 0;
+  transform: translateY(8px) scale(0.97);
+}
+.talk.cancelled {
+  border-color: rgba(255, 84, 112, 0.6);
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 380ms, transform 380ms;
+}
+@keyframes talk-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.95); }
+}
+.talk-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--talk);
+}
+.talk-head b {
+  color: #fff;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+.talk-mic {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--talk);
+  box-shadow: 0 0 12px var(--talk);
+  animation: beat 900ms ease-in-out infinite;
+}
+.talk-to {
+  flex: 1;
+}
+.talk-text {
+  margin-top: 8px;
+  min-height: 26px;
+  font-size: 19px;
+  line-height: 1.4;
+  font-weight: 500;
+  color: #fff;
+  word-wrap: break-word;
+}
+.talk-text .partial {
+  color: rgba(238, 241, 247, 0.62);
+}
+.talk-text .placeholder {
+  color: rgba(238, 241, 247, 0.35);
+  font-style: italic;
+  font-weight: 400;
+}
+.talk-bar {
+  margin-top: 10px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+#talk-progress {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--talk), var(--accent));
+  border-radius: 2px;
+}
+
+/* ---- camera picture-in-picture -------------------------------------------------- */
+.pip {
+  position: relative;
+  width: 224px;
+  height: 126px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--glass-edge);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  opacity: 0.35;
+  transition: opacity 300ms, box-shadow 300ms;
+}
+.pip.live {
+  opacity: 1;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(56, 225, 255, 0.35);
+}
+.pip video,
+.pip canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.pip video {
+  filter: saturate(0.7) brightness(0.8);
+}
+.pip-label {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+}
+
+/* ---- gesture legend ------------------------------------------------------------ */
+.legend {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--ink-dim);
+}
+.legend b {
+  display: inline-block;
+  width: 22px;
+}

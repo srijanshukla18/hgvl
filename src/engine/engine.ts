@@ -230,7 +230,7 @@ export class GestureEngine {
     if (ready && fresh('Thumb_Up')) {
       const target = this.resolveTarget(ctx, ['blocked']);
       if (!target) {
-        events.push({ type: 'hint', text: nobody(ctx, 'approve') });
+        events.push({ type: 'hint', text: nobody(ctx, this.addressedPane(ctx), 'approve') });
         this.fire('Thumb_Up', now);
       } else if (target.danger) {
         if (!this.hold) this.hold = { kind: 'approve', paneId: target.id, since: now };
@@ -350,7 +350,9 @@ export class GestureEngine {
   }
 }
 
-function nobody(ctx: EngineContext, verb: string): string {
+function nobody(ctx: EngineContext, addressed: string | null, verb: string): string {
+  const pointed = ctx.panes.find((p) => p.id === addressed);
+  if (pointed) return `${pointed.label} isn't asking anything`;
   const blocked = ctx.panes.filter((p) => p.state === 'blocked').length;
   if (blocked > 1) return `${blocked} agents are waiting — point at one to ${verb}`;
   return 'No agent is waiting for an answer';
