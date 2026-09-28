@@ -25,7 +25,6 @@ protocol.registerSchemesAsPrivileged([
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
 app.commandLine.appendSwitch('disable-background-timer-throttling');
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
-if (process.platform === 'darwin') app.dock?.hide();
 
 let overlay: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -208,7 +207,8 @@ function setEnabled(on: boolean): void {
 
 function rebuildMenu(): void {
   if (!tray) return;
-  tray.setTitle(enabled ? '✋' : '✋̸');
+  tray.setTitle(enabled ? '✋' : '✋ off');
+  tray.setToolTip('herdr hands');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: enabled ? 'Hands on' : 'Hands off', type: 'checkbox', checked: enabled, accelerator: 'CommandOrControl+Shift+H', click: () => setEnabled(!enabled) },
@@ -237,6 +237,7 @@ function rebuildMenu(): void {
 // ---- boot ------------------------------------------------------------------------------------------------
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin') app.dock?.hide();
   serveApp();
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'media');
@@ -270,6 +271,7 @@ app.whenReady().then(async () => {
     sounds: cfg.sounds,
     dangerList: cfg.dangerList,
     pointerGain: cfg.pointerGain,
+    pointerCenter: cfg.pointerCenter,
     mirror: cfg.mirror,
     visionDelegate: cfg.visionDelegate,
   }));

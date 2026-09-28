@@ -57,7 +57,12 @@ async function boot(): Promise<void> {
   const cfg = await bridge.config();
   sounds.enabled = cfg.sounds;
   showCamera = cfg.showCamera;
-  engine = new GestureEngine({ gain: cfg.pointerGain, mirror: cfg.mirror });
+  engine = new GestureEngine({
+    gain: cfg.pointerGain,
+    centerX: cfg.pointerCenter[0],
+    centerY: cfg.pointerCenter[1],
+    mirror: cfg.mirror,
+  });
 
   bridge.onLayout((l) => {
     layout = l;
@@ -183,6 +188,12 @@ async function act(
 function startUtterance(paneId: string | null, preRollMs: number): void {
   if (!paneId) {
     toast('Point at an agent, then pinch and hold to talk');
+    sounds.play('cancel');
+    return;
+  }
+  // Dictation types into the pane and presses Enter: only ever do that to an agent, never a shell.
+  if (!layout.panes.find((p) => p.id === paneId)?.agent) {
+    toast(`${name(paneId)} isn't an agent — point at one to talk`);
     sounds.play('cancel');
     return;
   }

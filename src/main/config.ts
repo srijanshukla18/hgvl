@@ -15,6 +15,8 @@ export interface HandsConfig {
   sounds: boolean;
   mirror: boolean;
   pointerGain: number;
+  /** Where in the camera frame (0..1) your pointing hand rests when aiming at the middle of the terminal. */
+  pointerCenter: [number, number];
   /** MediaPipe delegate; GPU (Metal via WebGL) is fastest on a Mac. */
   visionDelegate: 'GPU' | 'CPU';
   /** Substrings that make an approval require a held thumbs-up. */
@@ -40,6 +42,7 @@ export const defaults: HandsConfig = {
   sounds: true,
   mirror: true,
   pointerGain: 1.8,
+  pointerCenter: [0.5, 0.55],
   visionDelegate: 'GPU',
   dangerList: ['deploy', 'wrangler', 'terraform apply', 'git push --force', 'git push -f', 'rm -rf', 'kubectl apply', 'drop table'],
   herdrSocket: null,

@@ -57,6 +57,7 @@ export interface OverlayConfig {
   sounds: boolean;
   dangerList: string[];
   pointerGain: number;
+  pointerCenter: [number, number];
   mirror: boolean;
   visionDelegate: 'GPU' | 'CPU';
 }
