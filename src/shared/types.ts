@@ -28,7 +28,6 @@ export interface LayoutSnapshot {
   /** Terminal content rect in overlay coordinates (the pointer maps onto this). */
   frame: Rect;
   panes: PaneView[];
-  zoomedPaneId: string | null;
   error?: string;
 }
 
@@ -37,9 +36,24 @@ export type Intent =
   | { kind: 'approve'; paneId: string }
   | { kind: 'deny'; paneId: string }
   | { kind: 'interrupt'; paneId: string }
-  | { kind: 'zoom'; paneId: string }
   | { kind: 'focus'; paneId: string }
+  | { kind: 'focusTab'; tabId: string }
+  | { kind: 'focusWorkspace'; workspaceId: string }
   | { kind: 'prompt'; paneId: string; text: string };
+
+/** What a spoken utterance should do, decided once the transcript is final and confirmed with 👍. */
+export type Route =
+  | { kind: 'prompt'; paneId: string }
+  | { kind: 'approve' | 'deny' | 'interrupt'; paneId: string }
+  | { kind: 'focusTab'; tabId: string; label: string }
+  | { kind: 'focusWorkspace'; workspaceId: string; label: string }
+  | { kind: 'none'; reason: string };
+
+export interface RouteRequest {
+  text: string;
+  /** The pane pointed at when the pinch started, if any. */
+  paneId: string | null;
+}
 
 export interface IntentResult {
   ok: boolean;
@@ -60,6 +74,8 @@ export interface OverlayConfig {
   pointerCenter: [number, number];
   mirror: boolean;
   visionDelegate: 'GPU' | 'CPU';
+  /** Jev routes utterances, so talking without pointing at an agent works. */
+  jev: boolean;
 }
 
 /** API exposed to the overlay by the preload script. */
@@ -70,6 +86,7 @@ export interface HandsBridge {
   onToggle(cb: (enabled: boolean) => void): void;
   onDemo(cb: (cmd: string) => void): void;
   intent(intent: Intent): Promise<IntentResult>;
+  route(req: RouteRequest): Promise<Route>;
   speechStart(id: number): void;
   speechChunk(id: number, samples: Float32Array): void;
   speechEnd(id: number, cancel: boolean): void;

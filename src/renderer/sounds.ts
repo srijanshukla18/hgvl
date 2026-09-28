@@ -1,6 +1,6 @@
 // Tiny synthesized UI sounds (no assets): each under ~120 ms and quiet.
 
-export type Sound = 'arm' | 'click' | 'approve' | 'deny' | 'stop' | 'cancel' | 'talk' | 'send' | 'zoom';
+export type Sound = 'arm' | 'click' | 'approve' | 'deny' | 'stop' | 'cancel' | 'talk' | 'send';
 
 export class Sounds {
   enabled = true;
@@ -36,9 +36,6 @@ export class Sounds {
       case 'send':
         noise(ctx, t, 0.16, 0.05);
         tone(ctx, t + 0.02, 900, 1800, 0.12, 0.035);
-        break;
-      case 'zoom':
-        tone(ctx, t, 500, 1000, 0.08, 0.05, 'triangle');
         break;
     }
   }

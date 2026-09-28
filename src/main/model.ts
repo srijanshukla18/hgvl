@@ -26,6 +26,21 @@ export interface PaneModel {
   tail?: string;
 }
 
+export interface TabModel {
+  id: string;
+  label: string;
+  number: number;
+  workspaceId: string;
+  focused: boolean;
+}
+
+export interface WorkspaceModel {
+  id: string;
+  label: string;
+  number: number;
+  focused: boolean;
+}
+
 export interface HerdrModel {
   connected: boolean;
   /** Tab area in cells; pane rects are relative to it. */
@@ -36,6 +51,9 @@ export interface HerdrModel {
   chrome: boolean;
   panes: PaneModel[];
   zoomedPaneId: string | null;
+  /** Every tab and workspace in the session, for voice navigation. */
+  tabs: TabModel[];
+  workspaces: WorkspaceModel[];
   error?: string;
 }
 
@@ -46,8 +64,9 @@ export interface HerdrSource extends EventEmitter {
   approve(paneId: string, keys: KeyMap): Promise<IntentResult>;
   deny(paneId: string, keys: KeyMap): Promise<IntentResult>;
   interrupt(paneId: string, keys: KeyMap): Promise<IntentResult>;
-  zoom(paneId: string): Promise<IntentResult>;
   focus(paneId: string): Promise<IntentResult>;
+  focusTab(tabId: string): Promise<IntentResult>;
+  focusWorkspace(workspaceId: string): Promise<IntentResult>;
   prompt(paneId: string, text: string): Promise<IntentResult>;
 }
 

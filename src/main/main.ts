@@ -6,17 +6,23 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, net, pr
 import { existsSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { Intent, IntentResult, LayoutSnapshot, OverlayConfig, PaneView, Rect } from '../shared/types.ts';
-import { configPath, loadConfig, type KeyMap } from './config.ts';
+import type { Intent, IntentResult, LayoutSnapshot, OverlayConfig, PaneView, Rect, Route, RouteRequest } from '../shared/types.ts';
+import { configPath, loadConfig, loadDotEnv, type KeyMap } from './config.ts';
+import { DangerCheck } from './danger.ts';
 import { cellsToRect, solveGrid } from './geometry.ts';
 import { HerdrClient } from './herdr.ts';
+import { Jev } from './jev.ts';
 import { MockHerdr } from './mock.ts';
 import { DEFAULT_KEYS, type HerdrModel, type HerdrSource } from './model.ts';
+import { interpretRoute, localRoute, planRoute, worthAsking } from './route.ts';
 import { Speech } from './stt.ts';
 import { findTerminalApp, frontWindowBounds } from './window-bounds.ts';
 
 const ROOT = app.getAppPath();
+loadDotEnv(join(ROOT, '.env'));
 const cfg = loadConfig();
+const jevKey = process.env.OPENROUTER_API_KEY;
+const jev = cfg.jev.enabled && jevKey ? new Jev(jevKey, cfg.jev.model, cfg.jev.timeoutMs) : null;
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
@@ -36,6 +42,7 @@ let showCamera = cfg.showCamera;
 let terminal: { app: string; pid?: number } | null = null;
 let termBounds: Rect | null = null;
 let lastLayoutJson = '';
+let danger: DangerCheck | null = null;
 
 function log(...args: unknown[]): void {
   console.log('[hands]', ...args);
@@ -126,6 +133,7 @@ function computeLayout(model: HerdrModel): LayoutSnapshot {
     frame = { x: 0, y: 0, w: disp.w, h: disp.h };
   }
   const grid = solveGrid({ content: frame, area: model.area, cellPx: model.cellPx, scale, chrome: model.chrome });
+  danger?.keep(model.panes.filter((p) => p.state === 'blocked').map((p) => p.id));
   const panes: PaneView[] = model.panes.map((p) => {
     const tail = (p.tail ?? '').toLowerCase();
     return {
@@ -135,13 +143,14 @@ function computeLayout(model: HerdrModel): LayoutSnapshot {
       state: p.state,
       focused: p.focused,
       rect: cellsToRect(grid, p.cells),
-      danger: p.state === 'blocked' ? (cfg.dangerList.find((d) => tail.includes(d.toLowerCase())) ?? null) : null,
+      // The danger list always applies; Jev catches what the list misses.
+      danger: p.state === 'blocked' ? (cfg.dangerList.find((d) => tail.includes(d.toLowerCase())) ?? danger?.verdict(p) ?? null) : null,
     };
   });
   // The pointer maps onto the pane area, not the sidebar.
   const paneArea = cellsToRect(grid, { x: 0, y: 0, w: model.area.w, h: model.area.h });
   const pointerFrame = paneArea.w > 0 && paneArea.h > 0 ? paneArea : frame;
-  return { connected: model.connected, frame: pointerFrame, panes, zoomedPaneId: model.zoomedPaneId, error: model.error };
+  return { connected: model.connected, frame: pointerFrame, panes, error: model.error };
 }
 
 function pushLayout(): void {
@@ -188,15 +197,32 @@ async function runIntent(intent: Intent): Promise<IntentResult> {
         return await herdr.deny(intent.paneId, keysFor(intent.paneId));
       case 'interrupt':
         return await herdr.interrupt(intent.paneId, keysFor(intent.paneId));
-      case 'zoom':
-        return await herdr.zoom(intent.paneId);
       case 'focus':
         return await herdr.focus(intent.paneId);
+      case 'focusTab':
+        return await herdr.focusTab(intent.tabId);
+      case 'focusWorkspace':
+        return await herdr.focusWorkspace(intent.workspaceId);
       case 'prompt':
         return await herdr.prompt(intent.paneId, intent.text);
     }
   } catch (err) {
     return { ok: false, error: String((err as Error)?.message ?? err) };
+  }
+}
+
+async function routeUtterance({ text, paneId }: RouteRequest): Promise<Route> {
+  const model = herdr.model;
+  const plan = planRoute(text, paneId, model);
+  if (!jev || !worthAsking(plan)) return localRoute(text, paneId, model);
+  const t0 = Date.now();
+  try {
+    const route = interpretRoute(plan, await jev.decide(plan.questions, plan.state), model);
+    log(`jev route (${Date.now() - t0} ms): ${JSON.stringify(route)}`);
+    return route;
+  } catch (err) {
+    log('jev route failed, using local rules:', String((err as Error)?.message ?? err));
+    return localRoute(text, paneId, model);
   }
 }
 
@@ -229,6 +255,7 @@ function rebuildMenu(): void {
       { type: 'separator' },
       { label: cfg.mock ? 'Source: mock herdr' : `Source: herdr${herdr?.model.connected ? '' : ' (not connected)'}`, enabled: false },
       { label: terminal ? `Terminal: ${terminal.app}` : 'Terminal: whole screen', enabled: false },
+      { label: jev ? `Jev: ${cfg.jev.model}` : 'Jev: off (no OPENROUTER_API_KEY)', enabled: false },
       { label: `Config: ${configPath}`, enabled: false },
       { type: 'separator' },
       { label: 'Reload overlay', click: () => overlay?.webContents.reload() },
@@ -244,6 +271,13 @@ app.whenReady().then(async () => {
   serveApp();
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === 'media'));
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => perm === 'media');
+  // Safety net: the overlay never needs the network, so refuse every remote
+  // request it makes (the CSP blocks them too). This also stops MediaPipe's
+  // built-in usage stats. Jev calls come from this process, not the overlay.
+  session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] }, (d, cb) => {
+    log(`blocked network request to ${new URL(d.url).host}`);
+    cb({ cancel: true });
+  });
   if (process.platform === 'darwin') {
     await systemPreferences.askForMediaAccess('camera').catch(() => false);
     await systemPreferences.askForMediaAccess('microphone').catch(() => false);
@@ -254,6 +288,8 @@ app.whenReady().then(async () => {
   }
 
   herdr = cfg.mock ? new MockHerdr() : new HerdrClient(cfg);
+  if (jev) danger = new DangerCheck(jev, pushLayout, log);
+  log(jev ? `jev on (${cfg.jev.model})` : 'jev off: set OPENROUTER_API_KEY to enable');
   herdr.on('change', () => {
     pushLayout();
     rebuildMenu();
@@ -277,8 +313,10 @@ app.whenReady().then(async () => {
     pointerCenter: cfg.pointerCenter,
     mirror: cfg.mirror,
     visionDelegate: cfg.visionDelegate,
+    jev: jev !== null,
   }));
   ipcMain.handle('intent', (_e, intent: Intent) => runIntent(intent));
+  ipcMain.handle('route', (_e, req: RouteRequest) => routeUtterance(req));
   ipcMain.on('speech:start', (_e, id: number) => speech.begin(id));
   ipcMain.on('speech:chunk', (_e, id: number, samples: Float32Array) => speech.push(id, samples));
   ipcMain.on('speech:end', (_e, id: number, cancel: boolean) => speech.end(id, cancel));

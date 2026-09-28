@@ -3,3 +3,4 @@ dist/
 models/
 *.log
 .DS_Store
+.env

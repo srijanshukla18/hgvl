@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { HandsBridge, Intent, LayoutSnapshot, SpeechEvent } from '../shared/types.ts';
+import type { HandsBridge, Intent, LayoutSnapshot, RouteRequest, SpeechEvent } from '../shared/types.ts';
 
 const bridge: HandsBridge = {
   config: () => ipcRenderer.invoke('config'),
@@ -8,6 +8,7 @@ const bridge: HandsBridge = {
   onToggle: (cb) => void ipcRenderer.on('toggle', (_e, on: boolean) => cb(on)),
   onDemo: (cb) => void ipcRenderer.on('demo', (_e, cmd: string) => cb(cmd)),
   intent: (intent: Intent) => ipcRenderer.invoke('intent', intent),
+  route: (req: RouteRequest) => ipcRenderer.invoke('route', req),
   speechStart: (id) => ipcRenderer.send('speech:start', id),
   speechChunk: (id, samples) => ipcRenderer.send('speech:chunk', id, samples),
   speechEnd: (id, cancel) => ipcRenderer.send('speech:end', id, cancel),

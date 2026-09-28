@@ -45,7 +45,7 @@ class Rig {
   events: EngineEvent[] = [];
   ctx: EngineContext;
   constructor(panes: PaneView[]) {
-    this.ctx = { panes, frame, zoomedPaneId: null };
+    this.ctx = { panes, frame, pendingSend: false };
   }
   run(h: HandFrame | null, ms: number) {
     const end = this.t + ms;
@@ -126,12 +126,22 @@ test('a brief fist does nothing; a held fist interrupts', () => {
   assert.deepEqual(r.types(), [{ type: 'interrupt', paneId: 'a' }]);
 });
 
-test('pinch tap zooms the pointed pane', () => {
+test('a brief pinch does nothing', () => {
   const r = new Rig([pane('a', 0, 'idle'), pane('b', 500, 'idle')]);
   r.run(hand('point', 'None', 0.7, 0.5), 600);
   r.run(hand('pinch', 'None', 0.6, 0.55), 150);
   r.run(hand('point', 'None', 0.7, 0.5), 200);
-  assert.deepEqual(r.types(), [{ type: 'zoom', paneId: 'b' }]);
+  assert.deepEqual(r.types(), []);
+});
+
+test('with a transcript pending, thumbs up sends and thumbs down cancels instead of answering agents', () => {
+  const r = new Rig([pane('a', 0, 'blocked')]);
+  r.ctx.pendingSend = true;
+  r.run(hand('curled', 'Thumb_Up'), 500);
+  assert.deepEqual(r.types(), [{ type: 'send' }]);
+  r.run(hand('point', 'None'), 800);
+  r.run(hand('curled', 'Thumb_Down'), 500);
+  assert.deepEqual(r.types(), [{ type: 'send' }, { type: 'cancel' }]);
 });
 
 test('pinch hold talks to the pointed pane even if the hand drifts', () => {
